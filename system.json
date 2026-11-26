@@ -1,0 +1,38 @@
+{
+  "id": "cortex-fantasy",
+  "title": "Cortex Fantasy",
+  "description": "Custom narrative fantasy Cortex rules \u2014 initial Foundry V14 playtest build.",
+  "version": "0.1.7",
+  "authors": [
+    {
+      "name": "GMBen & ChatGPT"
+    }
+  ],
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14.370"
+  },
+  "documentTypes": {
+    "Actor": {
+      "character": {},
+      "npc": {}
+    }
+  },
+  "esmodules": [
+    "scripts/main.mjs"
+  ],
+  "styles": [
+    "styles/system.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "grid": {
+    "distance": 5,
+    "units": "ft"
+  }
+}
