@@ -86,3 +86,33 @@
 /* v0.1.7: inline validation for the kept-dice dialog */
 .cfx-validation{padding:6px 10px;border-radius:5px;background:rgba(36,120,76,.14);font-weight:600;}
 .cfx-validation.cfx-invalid{background:rgba(148,45,40,.17);color:#9b3430;}
+
+.cfx-npc .cfx-npc-header {
+ display: grid;
+ grid-template-columns: 58px minmax(0, 1fr) minmax(85px, 110px) auto;
+ align-items: end;
+ gap: 10px;
+ padding: 10px 14px;
+ background: #1c2b3d;
+}
+.cfx-npc .cfx-npc-portrait {padding: 0; overflow: hidden}
+.cfx-npc .cfx-npc-portrait img {display: block; width: 56px; height: 56px; object-fit: cover}
+.cfx-npc .cfx-npc-fields {min-width: 0; padding: 0; margin: 0; border: 0}
+.cfx-npc [data-npc-only][hidden] {display: none !important}
+.cfx-npc .cfx-npc-trait {
+ display: grid;
+ grid-template-columns: minmax(0, 1fr) 80px auto;
+ gap: 8px;
+ margin-bottom: 8px;
+}
+.cfx-npc .cfx-npc-mob, .cfx-npc .cfx-npc-pp {
+ display: flex;
+ flex-wrap: wrap;
+ gap: 8px;
+ align-items: end;
+}
+.cfx-npc .cfx-npc-mob label {flex: 1; min-width: 85px}
+.cfx-npc .cfx-npc-pp {align-items: center}
+@media (max-width: 520px) {
+ .cfx-npc .cfx-npc-header {grid-template-columns: 58px minmax(0, 1fr)}
+}
