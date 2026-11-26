@@ -13,6 +13,14 @@ const schema = obj => new foundry.data.fields.SchemaField(obj);
 function namedRating(initial=0) { return schema({name:field(),rating:die(initial),notes:field()}); }
 function numberedRows(count, factory) { const o={}; for(let i=0;i<count;i++) o[`r${i}`]=factory(); return schema(o); }
 const ratings = keys => schema(Object.fromEntries(keys.map(k=>[k,die(k==='none'?0:4)])));
+class FantasyActor extends foundry.documents.Actor {
+ get sheet() {
+  const worldActor = this.isToken ? this.token?.baseActor : null;
+  if (worldActor?.type === 'character') return worldActor.sheet;
+  return super.sheet;
+ }
+}
+
 class CharacterData extends foundry.abstract.TypeDataModel {
  static defineSchema(){return {
   concept:field(),pronouns:field(),ancestry:field(),background:field(),notes:field(),equipment:field(),
@@ -52,13 +60,13 @@ async function rollPool(actor){
   if(!items.length)continue;
   grouped+=`<fieldset class="cfx-poolgroup"><legend>${cat}</legend>${items.map(d=>`<div class="cfx-poolrow"><label class="cfx-poolopt"><input type="checkbox" value="${d.i}"> ${escapeHTML(d.label)} <strong>d${d.faces}</strong></label>${cat==='Distinctions'?`<label class="cfx-hinderopt" title="Step down two dice sizes and gain 1 Plot Point when this roll is posted"><input type="checkbox" class="cfx-hinder" data-index="${d.i}"> Hinder</label>`:''}</div>`).join('')}</fieldset>`;
  }
- const selection=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Build Dice Pool`},content:`<section class="cfx-rollbox"><p>Select appropriate dice. A Hindered Distinction steps down <b>two sizes</b> (d10→d6, d8→d4, d6→no die) and earns <b>+1 PP after the roll is confirmed</b>. Explain how the Distinction makes things harder.</p><div class="cfx-poolgroups">${grouped}</div><fieldset><legend>Extra dice (situational / GM)</legend><label>Die <select id="cfx-extra">${opts(0)}</select></label> <label>Quantity <input id="cfx-qty" type="number" min="0" max="8" value="0" style="width:65px"></label></fieldset></section>`,buttons:[{action:'roll',label:'Roll Selected Dice',icon:'fa-solid fa-dice',default:true,callback:(event,button,dialog)=>{
-  const el=dialog.element;
-  const indices=[...el.querySelectorAll('.cfx-poolopt input:checked')].map(x=>Number(x.value));
-  const hinderIndices=[...el.querySelectorAll('.cfx-hinder:checked')].map(x=>Number(x.dataset.index));
-  if(hinderIndices.length>1){ui.notifications.warn('Hinder only one Distinction per roll.');return false;}
-  if(hinderIndices.some(i=>!indices.includes(i))){ui.notifications.warn('Select the Distinction you want to Hinder.');return false;}
-  if(indices.filter(i=>pool[i].category==='Distinctions').length>1){ui.notifications.warn('Choose only one Distinction for this roll.');return false;}
+ function readPool(el) {
+  const indices = [...el.querySelectorAll('.cfx-poolopt input:checked')].map(input => Number(input.value));
+  const hinderIndices = [...el.querySelectorAll('.cfx-hinder:checked')].map(input => Number(input.dataset.index));
+  if (indices.filter(i => pool[i].category === 'Specialties').length > 1) return {error: 'Choose only one Specialty for this roll.'};
+  if (indices.filter(i => pool[i].category === 'Distinctions').length > 1) return {error: 'Choose only one Distinction for this roll.'};
+  if (hinderIndices.length > 1) return {error: 'Hinder only one Distinction per roll.'};
+  if (hinderIndices.some(i => !indices.includes(i))) return {error: 'Select the Distinction you want to Hinder.'};
   const hIdx=hinderIndices[0];
   const selected=indices.map(i=>{
    const d=pool[i];
@@ -67,9 +75,29 @@ async function rollPool(actor){
   }).filter(d=>d.faces>0);
   const faces=Number(el.querySelector('#cfx-extra').value), quantity=Math.min(8,Math.max(0,Number(el.querySelector('#cfx-qty').value)||0));
   if(faces)for(let i=0;i<quantity;i++)selected.push({label:'Extra die',faces});
-  if(selected.length<2){ui.notifications.warn('Choose at least two dice after Hindering.');return false;}
-  return {dice:selected,hinderedName:hIdx===undefined?null:pool[hIdx].label};
- }},{action:'cancel',label:'Cancel',callback:()=>null}],rejectClose:false});
+  if (selected.length < 2) return {error: 'Choose at least two dice after Hindering.'};
+  return {dice: selected, hinderedName: hIdx === undefined ? null : pool[hIdx].label};
+ }
+ const selection=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Build Dice Pool`},content:`<section class="cfx-rollbox"><p>Select appropriate dice. A Hindered Distinction steps down <b>two sizes</b> (d10→d6, d8→d4, d6→no die) and earns <b>+1 PP after the roll is confirmed</b>. Explain how the Distinction makes things harder.</p><div class="cfx-poolgroups">${grouped}</div><fieldset><legend>Extra dice (situational / GM)</legend><label>Die <select id="cfx-extra">${opts(0)}</select></label> <label>Quantity <input id="cfx-qty" type="number" min="0" max="8" value="0" style="width:65px"></label></fieldset><p class="cfx-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'roll',label:'Roll Selected Dice',icon:'fa-solid fa-dice',default:true,callback: (event, button, dialog) => {
+   const selection = readPool(dialog.element);
+   if (selection.error) { ui.notifications.warn(selection.error); return null; }
+   return selection;
+  }}, {action: 'cancel', label: 'Cancel', callback: () => null}],
+  render: (event, dialog) => {
+   const el = dialog.element;
+   const button = el.querySelector('button[data-action="roll"]');
+   const feedback = el.querySelector('.cfx-validation');
+   const refresh = () => {
+    const {error} = readPool(el);
+    if (button) button.disabled = Boolean(error);
+    feedback.textContent = error ?? '';
+    feedback.hidden = !error;
+    feedback.classList.toggle('cfx-invalid', Boolean(error));
+   };
+   el.addEventListener('change', refresh);
+   el.addEventListener('input', refresh);
+   refresh();
+  }, rejectClose: false});
  if(!selection||selection===false)return;
  const formula=selection.dice.map(x=>`1d${x.faces}`).join('+');
  const roll=await new Roll(formula).evaluate();
@@ -82,6 +110,10 @@ async function rollPool(actor){
  const effectIndex=eligible.filter(x=>!totalIndices.includes(x.i)).sort((a,b)=>b.faces-a.faces)[0]?.i??-1;
  const rows=results.map((d,i)=>`<tr><td>${escapeHTML(d.label)}</td><td><b>d${d.faces}</b></td><td><strong class="${d.result===1?'cfx-hitch':''}">${d.result}${d.result===1?' ⚠':''}</strong></td><td><select class="cfx-keep" data-index="${i}" ${d.result===1?'disabled title="Hitches cannot be kept"':''}><option value="unused">${d.result===1?'Hitch':'Unused'}</option><option value="total" ${totalIndices.includes(i)?'selected':''}>TOTAL (add result)</option><option value="effect" ${effectIndex===i?'selected':''}>EFFECT (use die size)</option><option value="effect2">EXTRA EFFECT (+1 PP)</option></select></td></tr>`).join('');
  const ppAtRoll=actor.system.plotPoints;
+ const baseTotalCount = Math.min(2, eligible.length);
+ const shortTotal = baseTotalCount < 2;
+ const canBuyTotal = eligible.length >= 3 && ppAtRoll >= 1;
+ const canBuyEffect = eligible.length >= 4 && ppAtRoll >= 1;
  // Validate the *existing* dice assignments before allowing DialogV2 to submit.
  // Returning false from a DialogV2 button callback does NOT keep its window open.
  function getKeptChoice(el){
@@ -91,14 +123,17 @@ async function rollPool(actor){
   const second=el.querySelector('#cfx-extra-effect').checked;
   const spent=Number(third)+Number(second);
   let error='';
-  if(spent>actor.system.plotPoints)error=`Not enough Plot Points: ${spent} needed, ${actor.system.plotPoints} available. Uncheck a PP option to continue.`;
-  else if(kept.length!==(third?3:2))error=`Choose exactly ${third?3:2} dice for the total.`;
+  const available = Math.min(ppAtRoll, actor.system.plotPoints);
+  if(spent>available)error=`Not enough Plot Points: ${spent} needed, ${available} available. Uncheck a PP option to continue.`;
+  else if(kept.length!==baseTotalCount+Number(third))error=`Choose exactly ${baseTotalCount+Number(third)} dice for the total.`;
   else if(effects.length>1)error='Choose at most one main effect die.';
   else if(extras.length!==(second?1:0))error=second?'Choose exactly one extra effect die.':'Check Use 1 Plot Point before selecting an extra effect die.';
   else if(second&&effects.length!==1)error='An extra effect die requires a main effect die.';
   return {error,choices,spent,third,second};
  }
- const choice=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Choose Kept Dice`},content:`<section class="cfx-resultbox"><p class="cfx-select-instructions">Assign <b>two dice to <span class="cfx-role-total">TOTAL</span></b> (or <b>three</b> if you spend 1 PP), and choose your <b><span class="cfx-role-effect">EFFECT</span></b>. Extra effect dice also cost 1 PP each. Hitches cannot be kept.</p><div class="cfx-pp-spend"><strong>Available PP before this roll: ${ppAtRoll}</strong><label><input type="checkbox" id="cfx-extra-total" ${ppAtRoll<1?'disabled':''}> <b>Use 1 Plot Point:</b> keep a third die in your total</label><label><input type="checkbox" id="cfx-extra-effect" ${ppAtRoll<1?'disabled':''}> <b>Use 1 Plot Point:</b> keep a second effect die</label><small>Choose the corresponding extra die below. Plot Points are deducted only when you confirm. PP earned from Hindering cannot be spent on this roll.</small></div><table><thead><tr><th>Trait</th><th>Die</th><th>Rolled</th><th>Assign die to…</th></tr></thead><tbody>${rows}</tbody></table><p class="hint">If no effect die remains, the effect defaults to d4. Canceling does not deduct PP or award a Hinder PP.</p><p class="cfx-validation" id="cfx-roll-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'post',label:'Confirm & Post Result',icon:'fa-solid fa-comment',default:true,callback:(event,button,dialog)=>{
+ const choice=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Choose Kept Dice`},content:`<section class="cfx-resultbox"><p class="cfx-select-instructions">${shortTotal
+  ? `Keep ${baseTotalCount === 1 ? "the one usable die" : "zero dice"} for the total. Missing dice contribute zero.`
+  : 'Assign <b>two dice to <span class="cfx-role-total">TOTAL</span></b> (or <b>three</b> if you spend 1 PP), and choose your <b><span class="cfx-role-effect">EFFECT</span></b>. Extra effect dice also cost 1 PP each.'} Hitches cannot be kept.</p><div class="cfx-pp-spend"><strong>Available PP before this roll: ${ppAtRoll}</strong><label><input type="checkbox" id="cfx-extra-total" ${!canBuyTotal?'disabled':''}> <b>Use 1 Plot Point:</b> keep a third die in your total</label><label><input type="checkbox" id="cfx-extra-effect" ${!canBuyEffect?'disabled':''}> <b>Use 1 Plot Point:</b> keep a second effect die</label><small>Choose the corresponding extra die below. Plot Points are deducted only when you confirm. PP earned from Hindering cannot be spent on this roll.</small></div><table><thead><tr><th>Trait</th><th>Die</th><th>Rolled</th><th>Assign die to…</th></tr></thead><tbody>${rows}</tbody></table><p class="hint">If no effect die remains, the effect defaults to d4. Canceling does not deduct PP or award a Hinder PP.</p><p class="cfx-validation" id="cfx-roll-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'post',label:'Confirm & Post Result',icon:'fa-solid fa-comment',default:true,callback:(event,button,dialog)=>{
   const state=getKeptChoice(dialog.element);
   // The render-time guard keeps this path unreachable in ordinary use.
   if(state.error){ui.notifications.warn(state.error);return null;}
@@ -126,7 +161,6 @@ async function rollPool(actor){
    refresh();
   },rejectClose:false});
  if(!choice||choice===false)return;
- if(choice.spent>actor.system.plotPoints){ui.notifications.warn('Not enough Plot Points; roll not posted.');return;}
  const total=choice.choices.filter(x=>x.role==='total').reduce((n,x)=>n+results[x.i].result,0);
  const effect=choice.choices.find(x=>x.role==='effect');
  const extraEffect=choice.choices.find(x=>x.role==='effect2');
@@ -136,10 +170,39 @@ async function rollPool(actor){
  const ppSummary=choice.spent?`<p>Spent ${choice.spent} Plot Point${choice.spent===1?'':'s'} to keep ${[choice.third?'a third total die':null,choice.second?'an extra effect die':null].filter(Boolean).join(' and ')}.</p>`:'';
  const hinderSummary=selection.hinderedName?`<p><b>Hindered:</b> ${escapeHTML(selection.hinderedName)} — +1 PP after this roll.</p>`:'';
  const content=`<div class="cfx-chat"><header><strong>${escapeHTML(actor.name)} — Cortex Roll</strong></header><p class="cfx-chatbig">Total <b>${total}</b> · Effect <b>d${faces}${extraFaces?` + d${extraFaces}`:''}</b></p><div class="cfx-chatdice">${lines}</div>${ppSummary}${hinderSummary}${results.some(x=>x.result===1)?'<p>⚠ One or more hitches (rolled 1)</p>':''}</div>`;
- // Do not attach the Roll: those dice have already been evaluated and animated.
+ // Keep the original dice out of the chat payload so they animate only once.
+ if (!await adjustPlotPoints(actor, Number(Boolean(selection.hinderedName)) - choice.spent, choice.spent)) return;
  await ChatMessage.create({speaker:ChatMessage.getSpeaker({actor}),content,flavor:`Cortex Pool: ${results.map(x=>`d${x.faces}`).join(' + ')}`,style:CONST.CHAT_MESSAGE_STYLES.OTHER},{rollMode:game.settings.get('core','rollMode')});
- const updatedPP=Math.max(0,actor.system.plotPoints-choice.spent+(selection.hinderedName?1:0));
- if(choice.spent||selection.hinderedName)await actor.update({'system.plotPoints':updatedPP});
+}
+
+const pendingPlotPointUpdates = new WeakMap();
+
+async function adjustPlotPoints(actor, delta, required = 0) {
+ if (!delta && !required) return true;
+ const previous = pendingPlotPointUpdates.get(actor);
+ const update = (async () => {
+  await previous;
+  const balance = actor.system.plotPoints;
+  if (balance < required) {
+   ui.notifications.warn('Not enough Plot Points.');
+   return false;
+  }
+  const next = Math.max(0, balance + delta);
+  if (next === balance) return true;
+  try {
+   if (await actor.update({'system.plotPoints': next})) return true;
+  } catch (error) {
+   console.error('Cortex Fantasy | Plot Point update failed', error);
+  }
+  ui.notifications.error('Could not update Plot Points.');
+  return false;
+ })();
+ pendingPlotPointUpdates.set(actor, update);
+ try {
+  return await update;
+ } finally {
+  if (pendingPlotPointUpdates.get(actor) === update) pendingPlotPointUpdates.delete(actor);
+ }
 }
 
 async function usePlotPoint(actor){
@@ -155,10 +218,9 @@ async function usePlotPoint(actor){
  ];
  const selection=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Use Plot Point`},content:`<section class="cfx-pp-dialog"><p>Available: <b>${actor.system.plotPoints} Plot Points</b>. Choose a use; spending happens when you confirm.</p><label>Plot Point use <select id="cfx-pp-use">${uses.map(([key,label])=>`<option value="${key}">${escapeHTML(label)}</option>`).join('')}</select></label><label>Details (optional) <input id="cfx-pp-details" placeholder="Asset name, Ability, or fiction…" maxlength="200"></label><p class="hint">To keep an extra total or effect die, use the controls in the roll confirmation dialog instead.</p></section>`,buttons:[{action:'spend',label:'Spend 1 Plot Point',default:true,callback:(event,button,dialog)=>({use:dialog.element.querySelector('#cfx-pp-use').value,details:dialog.element.querySelector('#cfx-pp-details').value.trim()})},{action:'cancel',label:'Cancel',callback:()=>null}],rejectClose:false});
  if(!selection||selection===false)return;
- if(actor.system.plotPoints<1){ui.notifications.warn('Not enough Plot Points.');return;}
+ if (!await adjustPlotPoints(actor, -1, 1)) return;
  const label=uses.find(x=>x[0]===selection.use)?.[1]??'Other Plot Point use';
  await ChatMessage.create({speaker:ChatMessage.getSpeaker({actor}),content:`<div class="cfx-chat"><strong>${escapeHTML(actor.name)} spent 1 Plot Point</strong><p>${escapeHTML(label)}</p>${selection.details?`<p>${escapeHTML(selection.details)}</p>`:''}</div>`,style:CONST.CHAT_MESSAGE_STYLES.OTHER},{rollMode:game.settings.get('core','rollMode')});
- await actor.update({'system.plotPoints':Math.max(0,actor.system.plotPoints-1)});
 }
 
 class FantasySheet extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.sheets.ActorSheetV2){
@@ -168,8 +230,12 @@ class FantasySheet extends foundry.applications.api.HandlebarsApplicationMixin(f
  async _prepareContext(options){const context=await super._prepareContext(options);const s=this.actor.system;return {...context,actor:this.actor,edit:this.isEditable,content:renderSheet(s,this.actor,this._cfxTab)};}
  static async rollAction(event,button){await rollPool(this.actor);}
  static async usePPAction(event,button){await usePlotPoint(this.actor);}
- static async ppAction(event,button){await this.actor.update({'system.plotPoints':Math.max(0,this.actor.system.plotPoints+Number(button.dataset.delta))});}
+ static async ppAction(event,button){await adjustPlotPoints(this.actor, Number(button.dataset.delta));}
  _saveScroll(){const sc=this.element?.querySelector('.cfx-scroll');if(sc)this._cfxScroll[this._cfxTab]=sc.scrollTop;}
+ async _preRender(context, options) {
+  await super._preRender(context, options);
+  if (this.rendered) this._saveScroll();
+ }
  _onRender(context,options){super._onRender(context,options);
   const el=this.element;
   // Tab switching is an in-place UI change, not a document re-render.
@@ -267,9 +333,10 @@ function renderSheet(s,actor,tab){
 }
 Hooks.on('preCreateActor',(actor,data)=>{if(data.type==='character')actor.updateSource({'prototypeToken.actorLink':true});});
 Hooks.once('init',()=>{
+ CONFIG.Actor.documentClass=FantasyActor;
  CONFIG.Actor.dataModels.character=CharacterData;
  CONFIG.Actor.dataModels.npc=CharacterData;
  const config=foundry.applications.apps.DocumentSheetConfig;
  config.registerSheet(foundry.documents.Actor,ID,FantasySheet,{types:['character','npc'],makeDefault:true,label:'Cortex Fantasy Sheet'});
- console.log('Cortex Fantasy | v0.1.6 initialized');
+ console.log('Cortex Fantasy | v0.1.8 initialized');
 });
