@@ -1,0 +1,28 @@
+<div class="cfx-conditions">
+  {{#if sceneId}}
+    <div class="cfx-condition-list">
+      {{#each conditions}}
+        <div class="cfx-condition-row" data-condition-id="{{id}}">
+          {{#if @root.editable}}
+            <input type="text" name="name" value="{{name}}" aria-label="Condition name" maxlength="100">
+            <select name="rating" aria-label="Condition rating">
+              {{#each ratings}}
+                <option value="{{rating}}" {{#if selected}}selected{{/if}}>d{{rating}}</option>
+              {{/each}}
+            </select>
+            <button type="button" data-action="removeCondition" aria-label="Remove {{name}}">Remove</button>
+          {{else}}
+            <span>{{name}}</span><strong>d{{rating}}</strong>
+          {{/if}}
+        </div>
+      {{else}}
+        <p>No conditions on the active scene.</p>
+      {{/each}}
+    </div>
+    {{#if editable}}
+      <button type="button" data-action="addCondition">Add Condition</button>
+    {{/if}}
+  {{else}}
+    <div class="cfx-condition-list"><p>No active scene available.</p></div>
+  {{/if}}
+</div>

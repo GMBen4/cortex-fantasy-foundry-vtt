@@ -86,3 +86,15 @@
 /* v0.1.7: inline validation for the kept-dice dialog */
 .cfx-validation{padding:6px 10px;border-radius:5px;background:rgba(36,120,76,.14);font-weight:600;}
 .cfx-validation.cfx-invalid{background:rgba(148,45,40,.17);color:#9b3430;}
+
+.cfx-scene-conditions .window-content {padding: 10px}
+.cfx-conditions {display: flex; flex-direction: column; min-height: 0; height: 100%; gap: 8px}
+.cfx-condition-list {overflow-y: auto; min-height: 0; flex: 1}
+.cfx-condition-row {
+ display: grid;
+ grid-template-columns: minmax(0, 1fr) 58px auto;
+ align-items: center;
+ gap: 8px;
+ padding: 5px 0;
+ overflow-wrap: anywhere;
+}

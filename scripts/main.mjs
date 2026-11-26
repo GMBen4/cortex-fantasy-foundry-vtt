@@ -1,4 +1,4 @@
-const ID = "cortex-fantasy";
+import {SYSTEM_ID as ID, getActiveSceneConditions, registerSceneConditions} from './scene-conditions.mjs';
 const BUDGETS = Object.freeze({attributes:12,skills:19,specialties:4,assets:3});
 const ATTRS = ["might","finesse","vigor","reason","instinct","resolve","presence"];
 const SKILLS = ["melee","ranged","athletics","stealth","influence","performance","lore","investigation","medicine","spellcasting","survival","crafting","thievery","animalHandling","perception","insight"];
@@ -53,15 +53,28 @@ function makePoolOptions(actor){
 }
 
 async function rollPool(actor){
- const pool=makePoolOptions(actor);
+ const {scene, conditions} = getActiveSceneConditions();
+ const pool = makePoolOptions(actor);
+ for (const {id, name, rating} of conditions) {
+  pool.push({category: 'Scene Conditions', label: name, faces: rating, conditionId: id});
+ }
  let grouped = '';
- for(const cat of ['Attributes','Skills','Distinctions','Specialties','Assets']){
+ for(const cat of ['Attributes','Skills','Distinctions','Specialties','Assets','Scene Conditions']){
   const items=pool.map((d,i)=>({...d,i})).filter(d=>d.category===cat);
   if(!items.length)continue;
   grouped+=`<fieldset class="cfx-poolgroup"><legend>${cat}</legend>${items.map(d=>`<div class="cfx-poolrow"><label class="cfx-poolopt"><input type="checkbox" value="${d.i}"> ${escapeHTML(d.label)} <strong>d${d.faces}</strong></label>${cat==='Distinctions'?`<label class="cfx-hinderopt" title="Step down two dice sizes and gain 1 Plot Point when this roll is posted"><input type="checkbox" class="cfx-hinder" data-index="${d.i}"> Hinder</label>`:''}</div>`).join('')}</fieldset>`;
  }
  function readPool(el) {
   const indices = [...el.querySelectorAll('.cfx-poolopt input:checked')].map(input => Number(input.value));
+  const selectedConditions = indices.map(i => pool[i]).filter(die => die.conditionId);
+  if (selectedConditions.length) {
+   const active = getActiveSceneConditions();
+   if (active.scene?.id !== scene?.id || selectedConditions.some(die =>
+    !active.conditions.some(condition =>
+     condition.id === die.conditionId && condition.name === die.label && condition.rating === die.faces
+    )
+   )) return {error: 'Scene Conditions changed. Reopen the dice pool to see current conditions.'};
+  }
   const hinderIndices = [...el.querySelectorAll('.cfx-hinder:checked')].map(input => Number(input.dataset.index));
   if (indices.filter(i => pool[i].category === 'Specialties').length > 1) return {error: 'Choose only one Specialty for this roll.'};
   if (indices.filter(i => pool[i].category === 'Distinctions').length > 1) return {error: 'Choose only one Distinction for this roll.'};
@@ -333,10 +346,11 @@ function renderSheet(s,actor,tab){
 }
 Hooks.on('preCreateActor',(actor,data)=>{if(data.type==='character')actor.updateSource({'prototypeToken.actorLink':true});});
 Hooks.once('init',()=>{
+ registerSceneConditions();
  CONFIG.Actor.documentClass=FantasyActor;
  CONFIG.Actor.dataModels.character=CharacterData;
  CONFIG.Actor.dataModels.npc=CharacterData;
  const config=foundry.applications.apps.DocumentSheetConfig;
  config.registerSheet(foundry.documents.Actor,ID,FantasySheet,{types:['character','npc'],makeDefault:true,label:'Cortex Fantasy Sheet'});
- console.log('Cortex Fantasy | v0.1.8 initialized');
+ console.log('Cortex Fantasy | v0.2.0 initialized');
 });
