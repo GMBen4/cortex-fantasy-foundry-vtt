@@ -1,6 +1,26 @@
-# Cortex Fantasy — v0.1.8
+# Cortex Fantasy — v0.2.0
 
-Targets Foundry V14 Build 369. With Foundry closed, extract the versioned ZIP into `Data/systems/` so that `system.json` is at `Data/systems/cortex-fantasy/system.json`. Restart Foundry.
+Targets Foundry V14 Build 369. With Foundry closed, install the system files at `Data/systems/cortex-fantasy/` and restart.
+
+## Scene Conditions
+
+GMs open **Scene Conditions** from Token Controls. All users can open the window with **Alt+Shift+C** or rebind **Open Scene Conditions** in Foundry's Configure Controls. Players see a read-only list. The window follows the world’s active Scene.
+
+Add only shared information to Scene Conditions. For example, add **Thick Smoke**, set its die to **d8**, and press Tab or click away to save an edited name. Each Scene stores its own conditions. Anyone on that active Scene can choose its condition dice when appropriate, including either side of a conflict. Conditions are optional environmental dice and do not grant Plot Points or support Hindering.
+
+## v0.2.0 live checklist
+
+| Foundry V14 Build 369 check | Result |
+| --- | --- |
+| As GM, open Token Controls, move the window, then add, rename, change the die, and remove a condition. Reload and verify the saved list. | Pass / Fail / Skip |
+| As a connected player, open via Alt+Shift+C. Verify read-only access, live GM updates, and absence of the GM Token Controls button. | Pass / Fail / Skip |
+| Prepare two scenes with different conditions and switch the active Scene. Compare both clients, including a GM privately viewing an inactive Scene. | Pass / Fail / Skip |
+| Roll as a PC and as an NPC with zero, one, and two selected conditions. Confirm the dice remain optional, grant no PP, and lack Hinder controls. | Pass / Fail / Skip |
+| Change a selected condition before rolling. Confirm the stale selection is rejected. Check normal hitches, effect dice, Hinder, PP spending, and a single Dice So Nice animation. | Pass / Fail / Skip |
+
+**Additional Observations:** _______________________
+
+## v0.1.8 baseline
 
 ## v0.1.8 changes
 
