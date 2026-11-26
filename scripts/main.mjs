@@ -261,11 +261,20 @@ async function usePlotPoint(actor){
  await ChatMessage.create({speaker:ChatMessage.getSpeaker({actor}),content:`<div class="cfx-chat"><strong>${escapeHTML(actor.name)} spent 1 Plot Point</strong><p>${escapeHTML(label)}</p>${selection.details?`<p>${escapeHTML(selection.details)}</p>`:''}</div>`,style:CONST.CHAT_MESSAGE_STYLES.OTHER},{rollMode:game.settings.get('core','rollMode')});
 }
 
+function openPortraitPicker(actor, savePortrait) {
+ const Picker = foundry.applications.apps.FilePicker.implementation;
+ return new Picker({type: 'image', current: actor.img, callback: savePortrait}).render({force: true});
+}
+
 class FantasySheet extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.sheets.ActorSheetV2){
- static DEFAULT_OPTIONS={classes:['cortex-fantasy','sheet'],position:{width:840,height:750},window:{resizable:true},actions:{roll:FantasySheet.rollAction,pp:FantasySheet.ppAction,usepp:FantasySheet.usePPAction}};
+ static DEFAULT_OPTIONS={classes:['cortex-fantasy','sheet'],position:{width:840,height:750},window:{resizable:true},actions:{roll:FantasySheet.rollAction,pp:FantasySheet.ppAction,usepp:FantasySheet.usePPAction,portrait:FantasySheet.pickPortrait}};
  static PARTS={sheet:{template:`systems/${ID}/templates/actor.hbs`}};
  constructor(options={}){super(options);this._cfxTab='traits';this._cfxScroll={};}
- async _prepareContext(options){const context=await super._prepareContext(options);const s=this.actor.system;return {...context,actor:this.actor,edit:this.isEditable,content:renderSheet(s,this.actor,this._cfxTab)};}
+ async _prepareContext(options){const context=await super._prepareContext(options);const s=this.actor.system;return {...context,actor:this.actor,edit:this.isEditable,content:renderSheet(s,this.actor,this._cfxTab,this.isEditable)};}
+ static pickPortrait() {
+  if (!this.isEditable) return;
+  return openPortraitPicker(this.actor, img => this.actor.update({img}));
+ }
  static async rollAction(event,button){await rollPool(this.actor);}
  static async usePPAction(event,button){await usePlotPoint(this.actor);}
  static async ppAction(event,button){await adjustPlotPoints(this.actor, Number(button.dataset.delta));}
@@ -334,9 +343,9 @@ class FantasySheet extends foundry.applications.api.HandlebarsApplicationMixin(f
   el.querySelectorAll('textarea').forEach(text=>text.addEventListener('blur',e=>{if(e.currentTarget.value!==e.currentTarget.defaultValue)e.currentTarget.dispatchEvent(new Event('change',{bubbles:false}));}));
  }
 }
-function renderSheet(s,actor,tab){
+function renderSheet(s,actor,tab,editable){
  const parts=[];
- parts.push(`<header class="cfx-identity"><img src="${escapeHTML(actor.img)}" alt="Portrait"/><div class="cfx-identity-fields"><label>Character Name <input name="name" value="${escapeHTML(actor.name)}"></label><label>Concept ${textInput('concept',s.concept,'Druid, warrior, spellblade…')}</label><div class="cfx-pair"><label>Ancestry ${textInput('ancestry',s.ancestry)}</label><label>Background ${textInput('background',s.background)}</label></div></div><div class="cfx-pp"><span>Plot Points</span><div><button type="button" data-action="pp" data-delta="-1">−</button><strong>${s.plotPoints}</strong><button type="button" data-action="pp" data-delta="1">+</button></div><button type="button" data-action="usepp" class="cfx-usepp"><i class="fa-solid fa-coins"></i> Use Plot Point</button><button type="button" class="cfx-primary" data-action="roll"><i class="fa-solid fa-dice"></i> Roll Pool</button></div></header>`);
+ parts.push(`<header class="cfx-identity"><button type="button" class="cfx-pc-portrait" data-action="portrait" aria-label="Change portrait" title="Change portrait" ${editable ? '' : 'disabled'}><img src="${escapeHTML(actor.img)}" alt="Portrait"></button><div class="cfx-identity-fields"><label>Character Name <input name="name" value="${escapeHTML(actor.name)}"></label><label>Concept ${textInput('concept',s.concept,'Druid, warrior, spellblade…')}</label><div class="cfx-pair"><label>Ancestry ${textInput('ancestry',s.ancestry)}</label><label>Background ${textInput('background',s.background)}</label></div></div><div class="cfx-pp"><span>Plot Points</span><div><button type="button" data-action="pp" data-delta="-1">−</button><strong>${s.plotPoints}</strong><button type="button" data-action="pp" data-delta="1">+</button></div><button type="button" data-action="usepp" class="cfx-usepp"><i class="fa-solid fa-coins"></i> Use Plot Point</button><button type="button" class="cfx-primary" data-action="roll"><i class="fa-solid fa-dice"></i> Roll Pool</button></div></header>`);
  parts.push(`<nav class="cfx-tabs">${[['traits','Traits, Skills & Distinctions'],['extras','Assets & Abilities'],['story','Beliefs & Instincts'],['status','Stress & Notes']].map(([key,label])=>`<button type="button" data-tab="${key}" role="tab" aria-selected="${tab===key}" class="${tab===key?'active':''}">${label}</button>`).join('')}</nav>`);
  const panels=[];
  for(const currentTab of ['traits','extras','story','status']){
@@ -462,11 +471,7 @@ class NpcSheet extends foundry.applications.api.HandlebarsApplicationMixin(found
 
  static pickPortrait() {
   if (!this.isEditable) return;
-  const Picker = foundry.applications.apps.FilePicker.implementation;
-  new Picker({
-   type: 'image', current: this.actor.img,
-   callback: img => this._updateNpc(() => ({img}))
-  }).render({force: true});
+  return openPortraitPicker(this.actor, img => this._updateNpc(() => ({img})));
  }
 
  static addTrait() {
@@ -518,7 +523,7 @@ function renderNpcSheet(actor, editable) {
   </div>`).join('');
  return `
   <header class="cfx-npc-header">
-   <button type="button" class="cfx-npc-portrait" data-action="portrait" aria-label="Change portrait" ${disabled}>
+   <button type="button" class="cfx-npc-portrait" data-action="portrait" aria-label="Change portrait" title="Change portrait" ${disabled}>
     <img src="${escapeHTML(actor.img)}" alt="NPC portrait">
    </button>
    <label>Name <input name="name" value="${escapeHTML(actor.name)}" ${disabled}></label>
