@@ -6,7 +6,7 @@
 .cortex-fantasy label{display:flex;flex-direction:column;gap:3px;font-weight:650;min-width:0;color:var(--cfx-ink)}
 .cortex-fantasy input,.cortex-fantasy select,.cortex-fantasy textarea{font:inherit;background:#f2efe6;color:#1c2430;border:1px solid #7f8990;border-radius:5px;min-width:0;padding:5px 7px;box-sizing:border-box;width:100%}
 .cortex-fantasy input:focus,.cortex-fantasy select:focus,.cortex-fantasy textarea:focus{outline:2px solid #eecb85}
-.cortex-fantasy .cfx-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cortex-fantasy .cfx-pair{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;align-items:start}
 .cortex-fantasy .cfx-identity-fields{display:grid;gap:4px}
 .cortex-fantasy .cfx-pp{display:flex;flex-direction:column;align-items:stretch;gap:6px;text-align:center;color:var(--cfx-gold);font-weight:bold}
 .cortex-fantasy .cfx-pp>div{display:flex;gap:7px;align-items:center;justify-content:center}
@@ -33,8 +33,8 @@
 .cortex-fantasy textarea{min-height:65px;resize:vertical}
 .cfx-rollbox,.cfx-resultbox{max-height:65vh;overflow-y:auto;color:var(--color-text-primary)}
 .cfx-poolgroups{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.cfx-poolgroup{border:1px solid #748392;border-radius:6px;min-width:0;padding:8px}
-.cfx-poolopt{display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;white-space:normal}
+.cfx-poolgroup{border:1px solid #748392;border-radius:6px;min-width:0;padding:3px 8px 5px;margin:0}
+.cfx-poolopt{display:flex;align-items:center;gap:6px;padding:0;cursor:pointer;white-space:normal}
 .cfx-poolopt input{width:auto;flex-shrink:0}
 .cfx-poolopt strong{margin-left:auto}
 .cfx-resultbox table{width:100%;border-collapse:collapse}
@@ -60,15 +60,10 @@
 .cfx-select-instructions{padding:8px 10px;border:1px solid var(--color-border-light-primary,#999);border-radius:6px;line-height:1.5}
 .cfx-role-total{font-weight:800;color:#236e4b}
 .cfx-role-effect{font-weight:800;color:#926612}
-.cfx-resultbox tr:has(.cfx-keep option[value="total"]:checked) td{background:rgba(52,150,96,.16)}
-.cfx-resultbox tr:has(.cfx-keep option[value="effect"]:checked) td{background:rgba(196,145,38,.20)}
-.cfx-resultbox .cfx-keep{min-width:170px;width:100%;padding:4px 7px}
-.cfx-resultbox .cfx-keep:has(option[value="total"]:checked){border:2px solid #339867;font-weight:700}
-.cfx-resultbox .cfx-keep:has(option[value="effect"]:checked){border:2px solid #be8b2d;font-weight:700}
 
 /* v0.1.6: Plot Point and Hinder controls */
 .cortex-fantasy .cfx-usepp{background:#40536b;border-color:#d0ae6b;color:#fff}
-.cfx-poolrow{border-bottom:1px solid rgba(120,140,160,.2);padding:3px 0}
+.cfx-poolrow{border-bottom:1px solid rgba(120,140,160,.2);padding:1px 0}
 .cfx-poolrow .cfx-poolopt{display:flex;width:100%;gap:6px}
 .cfx-poolrow .cfx-hinderopt{display:flex;align-items:center;gap:5px;margin-left:22px;font-size:12px;color:var(--color-text-primary,#333)}
 .cfx-hinderopt input{width:auto}
@@ -76,8 +71,6 @@
 .cfx-pp-spend label{display:flex;align-items:center;gap:8px;cursor:pointer}
 .cfx-pp-spend label input{width:auto}
 .cfx-pp-spend small{opacity:.85}
-.cfx-resultbox tr:has(.cfx-keep option[value="effect2"]:checked) td{background:rgba(76,125,186,.2)}
-.cfx-resultbox .cfx-keep:has(option[value="effect2"]:checked){border:2px solid #537fb6;font-weight:700}
 .cfx-chatdie.effect2{border-color:#537fb6;background:#e0eaf8;color:#20365b}
 .cfx-pp-dialog{display:grid;gap:12px}
 .cfx-pp-dialog label{display:grid;gap:6px}
@@ -86,3 +79,13 @@
 /* v0.1.7: inline validation for the kept-dice dialog */
 .cfx-validation{padding:6px 10px;border-radius:5px;background:rgba(36,120,76,.14);font-weight:600;}
 .cfx-validation.cfx-invalid{background:rgba(148,45,40,.17);color:#9b3430;}
+
+.cfx-assignment-table{overflow-x:auto}
+.cfx-assignments{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.cfx-assignments label{position:relative;display:block;cursor:pointer}
+.cfx-assignments input{position:absolute;width:1px;height:1px;opacity:0;margin:0}
+.cfx-assignments span{display:block;padding:3px 6px;border:1px solid #8694a0;border-radius:4px}
+.cfx-assignments input:checked + span{background:#29465e;color:#fff;border-color:#29465e;font-weight:700}
+.cfx-assignments input:focus-visible + span{outline:2px solid currentColor;outline-offset:2px}
+.cfx-roll-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px 12px;padding:8px;border:1px solid #8694a0;border-radius:6px}
+.cfx-roll-summary dd{margin:0;font-weight:700}

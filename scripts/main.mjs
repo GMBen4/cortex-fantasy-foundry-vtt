@@ -108,7 +108,20 @@ async function rollPool(actor){
  const defaults=[...eligible].sort((a,b)=>b.result-a.result||b.faces-a.faces);
  const totalIndices=defaults.slice(0,2).map(x=>x.i);
  const effectIndex=eligible.filter(x=>!totalIndices.includes(x.i)).sort((a,b)=>b.faces-a.faces)[0]?.i??-1;
- const rows=results.map((d,i)=>`<tr><td>${escapeHTML(d.label)}</td><td><b>d${d.faces}</b></td><td><strong class="${d.result===1?'cfx-hitch':''}">${d.result}${d.result===1?' ⚠':''}</strong></td><td><select class="cfx-keep" data-index="${i}" ${d.result===1?'disabled title="Hitches cannot be kept"':''}><option value="unused">${d.result===1?'Hitch':'Unused'}</option><option value="total" ${totalIndices.includes(i)?'selected':''}>TOTAL (add result)</option><option value="effect" ${effectIndex===i?'selected':''}>EFFECT (use die size)</option><option value="effect2">EXTRA EFFECT (+1 PP)</option></select></td></tr>`).join('');
+ const assignments = [
+  ['total', 'Total'], ['effect', 'Effect'], ['total2', 'Extra Total'],
+  ['effect2', 'Extra Effect'], ['unused', 'Unused']
+ ];
+ const rows = results.map((die, i) => {
+  const hitch = die.result === 1;
+  const selected = totalIndices.includes(i) ? 'total' : effectIndex === i ? 'effect' : 'unused';
+  const controls = hitch ? 'Hitch' : `<div class="cfx-assignments" role="group" aria-label="Assignment for die ${i + 1}, ${escapeHTML(die.label)}">${
+   assignments.map(([role, label]) =>
+    `<label><input class="cfx-keep" type="radio" name="cfx-assignment-${i}" data-index="${i}" value="${role}" ${selected === role ? 'checked' : ''}><span>${label}</span></label>`
+   ).join('')
+  }</div>`;
+  return `<tr><td>${escapeHTML(die.label)}</td><td><b>d${die.faces}</b></td><td><strong class="${hitch ? 'cfx-hitch' : ''}">${die.result}${hitch ? ' ⚠' : ''}</strong></td><td>${controls}</td></tr>`;
+ }).join('');
  const ppAtRoll=actor.system.plotPoints;
  const baseTotalCount = Math.min(2, eligible.length);
  const shortTotal = baseTotalCount < 2;
@@ -117,23 +130,37 @@ async function rollPool(actor){
  // Validate the *existing* dice assignments before allowing DialogV2 to submit.
  // Returning false from a DialogV2 button callback does NOT keep its window open.
  function getKeptChoice(el){
-  const choices=[...el.querySelectorAll('.cfx-keep')].map(s=>({i:Number(s.dataset.index),role:s.value}));
+  const choices=[...el.querySelectorAll('.cfx-keep:checked')].map(s=>({i:Number(s.dataset.index),role:s.value}));
   const kept=choices.filter(x=>x.role==='total'), effects=choices.filter(x=>x.role==='effect'), extras=choices.filter(x=>x.role==='effect2');
+  const extraTotals=choices.filter(x=>x.role==='total2');
   const third=el.querySelector('#cfx-extra-total').checked;
   const second=el.querySelector('#cfx-extra-effect').checked;
   const spent=Number(third)+Number(second);
   let error='';
   const available = Math.min(ppAtRoll, actor.system.plotPoints);
   if(spent>available)error=`Not enough Plot Points: ${spent} needed, ${available} available. Uncheck a PP option to continue.`;
-  else if(kept.length!==baseTotalCount+Number(third))error=`Choose exactly ${baseTotalCount+Number(third)} dice for the total.`;
+  else if(kept.length!==baseTotalCount)error=`Choose exactly ${baseTotalCount} dice as Total.`;
+  else if(extraTotals.length!==Number(third))error=third?'Choose exactly one Extra Total die.':'Check Use 1 Plot Point before selecting an Extra Total die.';
   else if(effects.length>1)error='Choose at most one main effect die.';
   else if(extras.length!==(second?1:0))error=second?'Choose exactly one extra effect die.':'Check Use 1 Plot Point before selecting an extra effect die.';
   else if(second&&effects.length!==1)error='An extra effect die requires a main effect die.';
-  return {error,choices,spent,third,second};
+  const total = [...kept, ...extraTotals].reduce((sum, {i}) => sum + results[i].result, 0);
+  const faces = effects.length ? results[effects[0].i].faces : 4;
+  const extraFaces = extras.length ? results[extras[0].i].faces : null;
+  return {error, choices, spent, third, second, total, faces, extraFaces, extraTotals, extras};
  }
- const choice=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Choose Kept Dice`},content:`<section class="cfx-resultbox"><p class="cfx-select-instructions">${shortTotal
+ const choice=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Choose Kept Dice`},position:{width:720},content:`<section class="cfx-resultbox"><p class="cfx-select-instructions">${shortTotal
   ? `Keep ${baseTotalCount === 1 ? "the one usable die" : "zero dice"} for the total. Missing dice contribute zero.`
-  : 'Assign <b>two dice to <span class="cfx-role-total">TOTAL</span></b> (or <b>three</b> if you spend 1 PP), and choose your <b><span class="cfx-role-effect">EFFECT</span></b>. Extra effect dice also cost 1 PP each.'} Hitches cannot be kept.</p><div class="cfx-pp-spend"><strong>Available PP before this roll: ${ppAtRoll}</strong><label><input type="checkbox" id="cfx-extra-total" ${!canBuyTotal?'disabled':''}> <b>Use 1 Plot Point:</b> keep a third die in your total</label><label><input type="checkbox" id="cfx-extra-effect" ${!canBuyEffect?'disabled':''}> <b>Use 1 Plot Point:</b> keep a second effect die</label><small>Choose the corresponding extra die below. Plot Points are deducted only when you confirm. PP earned from Hindering cannot be spent on this roll.</small></div><table><thead><tr><th>Trait</th><th>Die</th><th>Rolled</th><th>Assign die to…</th></tr></thead><tbody>${rows}</tbody></table><p class="hint">If no effect die remains, the effect defaults to d4. Canceling does not deduct PP or award a Hinder PP.</p><p class="cfx-validation" id="cfx-roll-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'post',label:'Confirm & Post Result',icon:'fa-solid fa-comment',default:true,callback:(event,button,dialog)=>{
+  : 'Assign <b>two dice to <span class="cfx-role-total">TOTAL</span></b> (or <b>three</b> if you spend 1 PP), and choose your <b><span class="cfx-role-effect">EFFECT</span></b>. Extra effect dice also cost 1 PP each.'} Hitches cannot be kept.</p><div class="cfx-pp-spend"><label><input type="checkbox" id="cfx-extra-total" ${!canBuyTotal?'disabled':''}> <b>Use 1 Plot Point:</b> keep an Extra Total die</label><label><input type="checkbox" id="cfx-extra-effect" ${!canBuyEffect?'disabled':''}> <b>Use 1 Plot Point:</b> keep an Extra Effect die</label><small>Choose the corresponding extra die below. Plot Points are deducted only when you confirm. PP earned from Hindering cannot be spent on this roll.</small></div>
+  <dl class="cfx-roll-summary" aria-live="polite" aria-atomic="true">
+   <div><dt>Current Total</dt><dd data-summary="total"></dd></div>
+   <div><dt>Current Effect Die</dt><dd data-summary="effect"></dd></div>
+   <div><dt>Extra Total</dt><dd data-summary="extraTotal"></dd></div>
+   <div><dt>Extra Effect</dt><dd data-summary="extraEffect"></dd></div>
+   <div><dt>Plot Points to spend</dt><dd data-summary="spent"></dd></div>
+   <div><dt>Plot Points before roll</dt><dd>${ppAtRoll}</dd></div>
+  </dl>
+  <div class="cfx-assignment-table"><table><thead><tr><th>Trait</th><th>Die</th><th>Rolled</th><th>Assignment</th></tr></thead><tbody>${rows}</tbody></table></div><p class="hint">If no effect die remains, the effect defaults to d4. Canceling does not deduct PP or award a Hinder PP.</p><p class="cfx-validation" id="cfx-roll-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'post',label:'Confirm & Post Result',icon:'fa-solid fa-comment',default:true,callback:(event,button,dialog)=>{
   const state=getKeptChoice(dialog.element);
   // The render-time guard keeps this path unreachable in ordinary use.
   if(state.error){ui.notifications.warn(state.error);return null;}
@@ -142,9 +169,19 @@ async function rollPool(actor){
    const el=dialog.element;
    const post=el.querySelector('button[data-action="post"]');
    const feedback=el.querySelector('#cfx-roll-validation');
+   const summary = el.querySelector('.cfx-roll-summary');
    const refresh=()=>{
     const state=getKeptChoice(el);
-    if(feedback){feedback.textContent=state.error || `Ready to post. Plot Points to spend: ${state.spent}.`;feedback.classList.toggle('cfx-invalid',!!state.error);}
+    const values = {
+     total: state.total, effect: `d${state.faces}`,
+     extraTotal: state.extraTotals.map(({i}) => `${results[i].result} (d${results[i].faces})`).join(', ') || '—',
+     extraEffect: state.extras.map(({i}) => `d${results[i].faces}`).join(', ') || '—',
+     spent: state.spent
+    };
+    for (const [key, value] of Object.entries(values)) {
+     summary.querySelector(`[data-summary="${key}"]`).textContent = value;
+    }
+    if(feedback){feedback.textContent=state.error || 'Ready to post.';feedback.classList.toggle('cfx-invalid',!!state.error);}
     if(post){post.disabled=!!state.error;post.title=state.error||'Post selected dice';}
    };
    el.addEventListener('change',refresh);
@@ -161,12 +198,8 @@ async function rollPool(actor){
    refresh();
   },rejectClose:false});
  if(!choice||choice===false)return;
- const total=choice.choices.filter(x=>x.role==='total').reduce((n,x)=>n+results[x.i].result,0);
- const effect=choice.choices.find(x=>x.role==='effect');
- const extraEffect=choice.choices.find(x=>x.role==='effect2');
- const faces=effect?results[effect.i].faces:4;
- const extraFaces=extraEffect?results[extraEffect.i].faces:null;
- const lines=results.map((d,i)=>{const role=choice.choices.find(x=>x.i===i)?.role??'unused';return `<span class="cfx-chatdie ${role}">${escapeHTML(d.label)}: d${d.faces} <strong>${d.result}</strong> ${d.result===1?'(Hitch)':role==='total'?'(Total)':role==='effect'?'(Effect)':role==='effect2'?'(Extra effect)':''}</span>`;}).join('');
+ const {total, faces, extraFaces} = choice;
+ const lines=results.map((d,i)=>{const assigned=choice.choices.find(x=>x.i===i)?.role??'unused';const role=assigned==='total2'?'total':assigned;return `<span class="cfx-chatdie ${role}">${escapeHTML(d.label)}: d${d.faces} <strong>${d.result}</strong> ${d.result===1?'(Hitch)':role==='total'?'(Total)':role==='effect'?'(Effect)':role==='effect2'?'(Extra effect)':''}</span>`;}).join('');
  const ppSummary=choice.spent?`<p>Spent ${choice.spent} Plot Point${choice.spent===1?'':'s'} to keep ${[choice.third?'a third total die':null,choice.second?'an extra effect die':null].filter(Boolean).join(' and ')}.</p>`:'';
  const hinderSummary=selection.hinderedName?`<p><b>Hindered:</b> ${escapeHTML(selection.hinderedName)} — +1 PP after this roll.</p>`:'';
  const content=`<div class="cfx-chat"><header><strong>${escapeHTML(actor.name)} — Cortex Roll</strong></header><p class="cfx-chatbig">Total <b>${total}</b> · Effect <b>d${faces}${extraFaces?` + d${extraFaces}`:''}</b></p><div class="cfx-chatdice">${lines}</div>${ppSummary}${hinderSummary}${results.some(x=>x.result===1)?'<p>⚠ One or more hitches (rolled 1)</p>':''}</div>`;
