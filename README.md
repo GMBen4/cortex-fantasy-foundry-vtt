@@ -1,6 +1,33 @@
-# Cortex Fantasy — v0.1.8
+# Cortex Fantasy — v0.1.9
 
-Targets Foundry V14 Build 369. With Foundry closed, extract the versioned ZIP into `Data/systems/` so that `system.json` is at `Data/systems/cortex-fantasy/system.json`. Restart Foundry.
+Targets Foundry V14 Build 369. Close Foundry and extract the ZIP into `Data/systems/` so the manifest is at `Data/systems/cortex-fantasy/system.json`. Restart Foundry and test in a copy of your world.
+
+## NPC sheets
+
+- **Minor** provides a portrait, description, rated traits, assets, and complications.
+- **Major** adds the three Stress and Trauma tracks, free-text Abilities, and Plot Point controls.
+- **Mob** adds a shared trait with one die rating and a configurable number of remaining dice. All remaining mob dice enter every roll automatically. A mob with zero dice is taken out. Use the add and remove controls to record changes after GM adjudication.
+- All three layouts share traits, assets, and complications. Existing NPCs open as Minor by default. Their existing notes supply the description. Select Major to see existing Stress, Trauma, Abilities, and Plot Points. Older PC-style data stays stored on the NPC, and legacy roll options remain available for NPCs with configured legacy ratings.
+- NPCs can roll a single die. PCs retain their existing pool requirements.
+
+The [Cortex Codex Mob rules](https://prod-images.cortexrpg.com/compendium/cortex-prime-game-handbook/CortexCodex.pdf) remove a mob die when a resolved attack would create or raise Stress or a Complication above the mob die rating. The roll dialog has no target or outcome tracking, so the GM resolves the outcome at the table and updates remaining dice on the sheet. The count input supports 0–30 dice.
+
+## v0.1.9 testing checklist
+
+| Build 369 check | Result |
+| --- | --- |
+| Install the ZIP in a copy of a v0.1.8 world. Open an existing NPC as Minor, then switch to Major and verify its notes, assets, complications, Stress, Trauma, Abilities, and PP. | Pass / Fail / Skip |
+| Edit the name, portrait, description, and traits. Switch through all three types, close and reopen the sheet, and verify the selected type and all values persist. | Pass / Fail / Skip |
+| Scroll down a long sheet, edit a field, switch types and back, and change PP. Verify the window stays put and type-specific scroll positions are restored where the content permits. | Pass / Fail / Skip |
+| Roll Minor and Major traits and assets, including a one-die pool. Verify hitches, total, effect, PP purchases, cancellation, and one Dice So Nice animation. | Pass / Fail / Skip |
+| Set a Mob to 3d8, add then remove dice, and verify each new roll uses the exact remaining group dice plus selected traits. Test one remaining die and zero dice. | Pass / Fail / Skip |
+| Open a PC, a linked PC token, and an existing unlinked PC token. Check the world sheet, PC budgets, Hinder, PP, and two-die pool minimum. Verify NPC token link settings and local overrides are preserved. | Pass / Fail / Skip |
+
+**Additional Observations:** _______________________
+
+Create the testing ZIP with `git archive --format=zip --prefix=cortex-fantasy/ -o cortex-fantasy-0.1.9.zip HEAD`.
+
+## v0.1.8 baseline
 
 ## v0.1.8 changes
 

@@ -3,6 +3,8 @@ const BUDGETS = Object.freeze({attributes:12,skills:19,specialties:4,assets:3});
 const ATTRS = ["might","finesse","vigor","reason","instinct","resolve","presence"];
 const SKILLS = ["melee","ranged","athletics","stealth","influence","performance","lore","investigation","medicine","spellcasting","survival","crafting","thievery","animalHandling","perception","insight"];
 const DICE = [0,4,6,8,10,12];
+const NPC_TYPES = ['minor', 'major', 'mob'];
+const MAX_MOB_DICE = 30;
 const HINDER_STEPS = Object.freeze({6:0,8:4,10:6,12:8});
 const hinderDie = faces => HINDER_STEPS[faces] ?? 0;
 const cap = s => s.replace(/([A-Z])/g,' $1').replace(/^./,x=>x.toUpperCase());
@@ -36,6 +38,21 @@ class CharacterData extends foundry.abstract.TypeDataModel {
  };}
 }
 
+// Retain every v0.1.8 field on existing NPCs, including fields outside the new sheet.
+class NpcData extends CharacterData {
+ static defineSchema() {
+  const {ArrayField, NumberField, StringField} = foundry.data.fields;
+  const mobDie = new NumberField({required: true, integer: true, initial: 6, choices: DICE.slice(1)});
+  return {
+   ...super.defineSchema(),
+   npcType: new StringField({required: true, initial: 'minor', choices: NPC_TYPES}),
+   npcTraits: new ArrayField(schema({id: field(), name: field(), rating: mobDie}), {initial: []}),
+   mobDie: new NumberField({required: true, integer: true, initial: 6, choices: DICE.slice(1)}),
+   mobCount: new NumberField({required: true, integer: true, initial: 3, min: 0, max: MAX_MOB_DICE})
+  };
+ }
+}
+
 const opts = (value, {includeZero=true,showUntrained=false,skipD4=false}={}) => (includeZero?DICE:DICE.slice(1)).filter(n=>!(skipD4&&n===4)).map(n=>`<option value="${n}" ${Number(value)===n?'selected':''}>${n===0?(showUntrained?'Untrained':'—'):`d${n}`}</option>`).join('');
 function dieSelect(path,value, extra=''){return `<select name="system.${path}" class="cfx-die" ${extra}>${opts(value,{skipD4:path.startsWith('skills.')||path.startsWith('specialties.')||path.startsWith('assets.')})}</select>`;}
 function textInput(path,value,placeholder=''){return `<input name="system.${path}" type="text" value="${escapeHTML(value)}" placeholder="${escapeHTML(placeholder)}" autocomplete="off">`;}
@@ -43,7 +60,16 @@ function area(path,value,placeholder=''){return `<textarea name="system.${path}"
 
 function makePoolOptions(actor){
  const sys=actor.system, list=[];
- for(const k of ATTRS)if(sys.attributes[k]>0)list.push({category:'Attributes',label:cap(k),faces:sys.attributes[k]});
+ if (actor.type === 'npc') {
+  for (const trait of sys.npcTraits) {
+   if (trait.name) list.push({category: 'Rated Traits', label: trait.name, faces: trait.rating});
+  }
+ }
+ const useLegacyRatings = actor.type !== 'npc'
+  || SKILLS.some(key => sys.skills[key] > 0)
+  || ATTRS.some(key => sys.attributes[key] !== 4)
+  || [sys.distinctions, sys.specialties].some(group => Object.values(group).some(trait => trait.name));
+ for(const k of ATTRS)if(useLegacyRatings&&sys.attributes[k]>0)list.push({category:'Attributes',label:cap(k),faces:sys.attributes[k]});
  for(const k of SKILLS)if(sys.skills[k]>0)list.push({category:'Skills',label:cap(k),faces:sys.skills[k]});
  for(const [i,d] of Object.values(sys.distinctions).entries())if(d.name && d.rating>0)list.push({category:'Distinctions',label:d.name,faces:d.rating});
  for(const d of Object.values(sys.specialties))if(d.name&&d.rating>0)list.push({category:'Specialties',label:d.name,faces:d.rating});
@@ -53,9 +79,15 @@ function makePoolOptions(actor){
 }
 
 async function rollPool(actor){
+ const isNpc = actor.type === 'npc';
+ const isMob = isNpc && actor.system.npcType === 'mob';
+ if (isMob && actor.system.mobCount === 0) {
+  ui.notifications.warn('The mob has no remaining dice.');
+  return;
+ }
  const pool=makePoolOptions(actor);
  let grouped = '';
- for(const cat of ['Attributes','Skills','Distinctions','Specialties','Assets']){
+ for(const cat of ['Rated Traits','Attributes','Skills','Distinctions','Specialties','Assets']){
   const items=pool.map((d,i)=>({...d,i})).filter(d=>d.category===cat);
   if(!items.length)continue;
   grouped+=`<fieldset class="cfx-poolgroup"><legend>${cat}</legend>${items.map(d=>`<div class="cfx-poolrow"><label class="cfx-poolopt"><input type="checkbox" value="${d.i}"> ${escapeHTML(d.label)} <strong>d${d.faces}</strong></label>${cat==='Distinctions'?`<label class="cfx-hinderopt" title="Step down two dice sizes and gain 1 Plot Point when this roll is posted"><input type="checkbox" class="cfx-hinder" data-index="${d.i}"> Hinder</label>`:''}</div>`).join('')}</fieldset>`;
@@ -75,10 +107,16 @@ async function rollPool(actor){
   }).filter(d=>d.faces>0);
   const faces=Number(el.querySelector('#cfx-extra').value), quantity=Math.min(8,Math.max(0,Number(el.querySelector('#cfx-qty').value)||0));
   if(faces)for(let i=0;i<quantity;i++)selected.push({label:'Extra die',faces});
-  if (selected.length < 2) return {error: 'Choose at least two dice after Hindering.'};
+  if (isMob) {
+   const {mobCount, mobDie} = actor.system;
+   if (mobCount === 0) return {error: 'The mob has no remaining dice.'};
+   for (let i = 0; i < mobCount; i++) selected.push({label: `Mob die ${i + 1}`, faces: mobDie});
+  }
+  if (isNpc && !selected.length) return {error: 'Choose at least one die.'};
+  if (!isNpc && selected.length < 2) return {error: 'Choose at least two dice after Hindering.'};
   return {dice: selected, hinderedName: hIdx === undefined ? null : pool[hIdx].label};
  }
- const selection=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Build Dice Pool`},content:`<section class="cfx-rollbox"><p>Select appropriate dice. A Hindered Distinction steps down <b>two sizes</b> (d10→d6, d8→d4, d6→no die) and earns <b>+1 PP after the roll is confirmed</b>. Explain how the Distinction makes things harder.</p><div class="cfx-poolgroups">${grouped}</div><fieldset><legend>Extra dice (situational / GM)</legend><label>Die <select id="cfx-extra">${opts(0)}</select></label> <label>Quantity <input id="cfx-qty" type="number" min="0" max="8" value="0" style="width:65px"></label></fieldset><p class="cfx-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'roll',label:'Roll Selected Dice',icon:'fa-solid fa-dice',default:true,callback: (event, button, dialog) => {
+ const selection=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Build Dice Pool`},content:`<section class="cfx-rollbox"><p>Select appropriate dice. ${isMob ? "All remaining mob dice are included automatically. " : ""}A Hindered Distinction steps down <b>two sizes</b> (d10→d6, d8→d4, d6→no die) and earns <b>+1 PP after the roll is confirmed</b>. Explain how the Distinction makes things harder.</p><div class="cfx-poolgroups">${grouped}</div><fieldset><legend>Extra dice (situational / GM)</legend><label>Die <select id="cfx-extra">${opts(0)}</select></label> <label>Quantity <input id="cfx-qty" type="number" min="0" max="8" value="0" style="width:65px"></label></fieldset><p class="cfx-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'roll',label:'Roll Selected Dice',icon:'fa-solid fa-dice',default:true,callback: (event, button, dialog) => {
    const selection = readPool(dialog.element);
    if (selection.error) { ui.notifications.warn(selection.error); return null; }
    return selection;
@@ -108,7 +146,20 @@ async function rollPool(actor){
  const defaults=[...eligible].sort((a,b)=>b.result-a.result||b.faces-a.faces);
  const totalIndices=defaults.slice(0,2).map(x=>x.i);
  const effectIndex=eligible.filter(x=>!totalIndices.includes(x.i)).sort((a,b)=>b.faces-a.faces)[0]?.i??-1;
- const rows=results.map((d,i)=>`<tr><td>${escapeHTML(d.label)}</td><td><b>d${d.faces}</b></td><td><strong class="${d.result===1?'cfx-hitch':''}">${d.result}${d.result===1?' ⚠':''}</strong></td><td><select class="cfx-keep" data-index="${i}" ${d.result===1?'disabled title="Hitches cannot be kept"':''}><option value="unused">${d.result===1?'Hitch':'Unused'}</option><option value="total" ${totalIndices.includes(i)?'selected':''}>TOTAL (add result)</option><option value="effect" ${effectIndex===i?'selected':''}>EFFECT (use die size)</option><option value="effect2">EXTRA EFFECT (+1 PP)</option></select></td></tr>`).join('');
+ const assignments = [
+  ['total', 'Total'], ['effect', 'Effect'], ['total2', 'Extra Total'],
+  ['effect2', 'Extra Effect'], ['unused', 'Unused']
+ ];
+ const rows = results.map((die, i) => {
+  const hitch = die.result === 1;
+  const selected = totalIndices.includes(i) ? 'total' : effectIndex === i ? 'effect' : 'unused';
+  const controls = hitch ? 'Hitch' : `<div class="cfx-assignments" role="group" aria-label="Assignment for die ${i + 1}, ${escapeHTML(die.label)}">${
+   assignments.map(([role, label]) =>
+    `<label><input class="cfx-keep" type="radio" name="cfx-assignment-${i}" data-index="${i}" value="${role}" ${selected === role ? 'checked' : ''}><span>${label}</span></label>`
+   ).join('')
+  }</div>`;
+  return `<tr><td>${escapeHTML(die.label)}</td><td><b>d${die.faces}</b></td><td><strong class="${hitch ? 'cfx-hitch' : ''}">${die.result}${hitch ? ' ⚠' : ''}</strong></td><td>${controls}</td></tr>`;
+ }).join('');
  const ppAtRoll=actor.system.plotPoints;
  const baseTotalCount = Math.min(2, eligible.length);
  const shortTotal = baseTotalCount < 2;
@@ -117,23 +168,37 @@ async function rollPool(actor){
  // Validate the *existing* dice assignments before allowing DialogV2 to submit.
  // Returning false from a DialogV2 button callback does NOT keep its window open.
  function getKeptChoice(el){
-  const choices=[...el.querySelectorAll('.cfx-keep')].map(s=>({i:Number(s.dataset.index),role:s.value}));
+  const choices=[...el.querySelectorAll('.cfx-keep:checked')].map(s=>({i:Number(s.dataset.index),role:s.value}));
   const kept=choices.filter(x=>x.role==='total'), effects=choices.filter(x=>x.role==='effect'), extras=choices.filter(x=>x.role==='effect2');
+  const extraTotals=choices.filter(x=>x.role==='total2');
   const third=el.querySelector('#cfx-extra-total').checked;
   const second=el.querySelector('#cfx-extra-effect').checked;
   const spent=Number(third)+Number(second);
   let error='';
   const available = Math.min(ppAtRoll, actor.system.plotPoints);
   if(spent>available)error=`Not enough Plot Points: ${spent} needed, ${available} available. Uncheck a PP option to continue.`;
-  else if(kept.length!==baseTotalCount+Number(third))error=`Choose exactly ${baseTotalCount+Number(third)} dice for the total.`;
+  else if(kept.length!==baseTotalCount)error=`Choose exactly ${baseTotalCount} dice as Total.`;
+  else if(extraTotals.length!==Number(third))error=third?'Choose exactly one Extra Total die.':'Check Use 1 Plot Point before selecting an Extra Total die.';
   else if(effects.length>1)error='Choose at most one main effect die.';
   else if(extras.length!==(second?1:0))error=second?'Choose exactly one extra effect die.':'Check Use 1 Plot Point before selecting an extra effect die.';
   else if(second&&effects.length!==1)error='An extra effect die requires a main effect die.';
-  return {error,choices,spent,third,second};
+  const total = [...kept, ...extraTotals].reduce((sum, {i}) => sum + results[i].result, 0);
+  const faces = effects.length ? results[effects[0].i].faces : 4;
+  const extraFaces = extras.length ? results[extras[0].i].faces : null;
+  return {error, choices, spent, third, second, total, faces, extraFaces, extraTotals, extras};
  }
- const choice=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Choose Kept Dice`},content:`<section class="cfx-resultbox"><p class="cfx-select-instructions">${shortTotal
+ const choice=await foundry.applications.api.DialogV2.wait({window:{title:`${actor.name} — Choose Kept Dice`},position:{width:720},content:`<section class="cfx-resultbox"><p class="cfx-select-instructions">${shortTotal
   ? `Keep ${baseTotalCount === 1 ? "the one usable die" : "zero dice"} for the total. Missing dice contribute zero.`
-  : 'Assign <b>two dice to <span class="cfx-role-total">TOTAL</span></b> (or <b>three</b> if you spend 1 PP), and choose your <b><span class="cfx-role-effect">EFFECT</span></b>. Extra effect dice also cost 1 PP each.'} Hitches cannot be kept.</p><div class="cfx-pp-spend"><strong>Available PP before this roll: ${ppAtRoll}</strong><label><input type="checkbox" id="cfx-extra-total" ${!canBuyTotal?'disabled':''}> <b>Use 1 Plot Point:</b> keep a third die in your total</label><label><input type="checkbox" id="cfx-extra-effect" ${!canBuyEffect?'disabled':''}> <b>Use 1 Plot Point:</b> keep a second effect die</label><small>Choose the corresponding extra die below. Plot Points are deducted only when you confirm. PP earned from Hindering cannot be spent on this roll.</small></div><table><thead><tr><th>Trait</th><th>Die</th><th>Rolled</th><th>Assign die to…</th></tr></thead><tbody>${rows}</tbody></table><p class="hint">If no effect die remains, the effect defaults to d4. Canceling does not deduct PP or award a Hinder PP.</p><p class="cfx-validation" id="cfx-roll-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'post',label:'Confirm & Post Result',icon:'fa-solid fa-comment',default:true,callback:(event,button,dialog)=>{
+  : 'Assign <b>two dice to <span class="cfx-role-total">TOTAL</span></b> (or <b>three</b> if you spend 1 PP), and choose your <b><span class="cfx-role-effect">EFFECT</span></b>. Extra effect dice also cost 1 PP each.'} Hitches cannot be kept.</p><div class="cfx-pp-spend"><label><input type="checkbox" id="cfx-extra-total" ${!canBuyTotal?'disabled':''}> <b>Use 1 Plot Point:</b> keep an Extra Total die</label><label><input type="checkbox" id="cfx-extra-effect" ${!canBuyEffect?'disabled':''}> <b>Use 1 Plot Point:</b> keep an Extra Effect die</label><small>Choose the corresponding extra die below. Plot Points are deducted only when you confirm. PP earned from Hindering cannot be spent on this roll.</small></div>
+  <dl class="cfx-roll-summary" aria-live="polite" aria-atomic="true">
+   <div><dt>Current Total</dt><dd data-summary="total"></dd></div>
+   <div><dt>Current Effect Die</dt><dd data-summary="effect"></dd></div>
+   <div><dt>Extra Total</dt><dd data-summary="extraTotal"></dd></div>
+   <div><dt>Extra Effect</dt><dd data-summary="extraEffect"></dd></div>
+   <div><dt>Plot Points to spend</dt><dd data-summary="spent"></dd></div>
+   <div><dt>Plot Points before roll</dt><dd>${ppAtRoll}</dd></div>
+  </dl>
+  <div class="cfx-assignment-table"><table><thead><tr><th>Trait</th><th>Die</th><th>Rolled</th><th>Assignment</th></tr></thead><tbody>${rows}</tbody></table></div><p class="hint">If no effect die remains, the effect defaults to d4. Canceling does not deduct PP or award a Hinder PP.</p><p class="cfx-validation" id="cfx-roll-validation" role="status" aria-live="polite"></p></section>`,buttons:[{action:'post',label:'Confirm & Post Result',icon:'fa-solid fa-comment',default:true,callback:(event,button,dialog)=>{
   const state=getKeptChoice(dialog.element);
   // The render-time guard keeps this path unreachable in ordinary use.
   if(state.error){ui.notifications.warn(state.error);return null;}
@@ -142,9 +207,19 @@ async function rollPool(actor){
    const el=dialog.element;
    const post=el.querySelector('button[data-action="post"]');
    const feedback=el.querySelector('#cfx-roll-validation');
+   const summary = el.querySelector('.cfx-roll-summary');
    const refresh=()=>{
     const state=getKeptChoice(el);
-    if(feedback){feedback.textContent=state.error || `Ready to post. Plot Points to spend: ${state.spent}.`;feedback.classList.toggle('cfx-invalid',!!state.error);}
+    const values = {
+     total: state.total, effect: `d${state.faces}`,
+     extraTotal: state.extraTotals.map(({i}) => `${results[i].result} (d${results[i].faces})`).join(', ') || '—',
+     extraEffect: state.extras.map(({i}) => `d${results[i].faces}`).join(', ') || '—',
+     spent: state.spent
+    };
+    for (const [key, value] of Object.entries(values)) {
+     summary.querySelector(`[data-summary="${key}"]`).textContent = value;
+    }
+    if(feedback){feedback.textContent=state.error || 'Ready to post.';feedback.classList.toggle('cfx-invalid',!!state.error);}
     if(post){post.disabled=!!state.error;post.title=state.error||'Post selected dice';}
    };
    el.addEventListener('change',refresh);
@@ -161,12 +236,8 @@ async function rollPool(actor){
    refresh();
   },rejectClose:false});
  if(!choice||choice===false)return;
- const total=choice.choices.filter(x=>x.role==='total').reduce((n,x)=>n+results[x.i].result,0);
- const effect=choice.choices.find(x=>x.role==='effect');
- const extraEffect=choice.choices.find(x=>x.role==='effect2');
- const faces=effect?results[effect.i].faces:4;
- const extraFaces=extraEffect?results[extraEffect.i].faces:null;
- const lines=results.map((d,i)=>{const role=choice.choices.find(x=>x.i===i)?.role??'unused';return `<span class="cfx-chatdie ${role}">${escapeHTML(d.label)}: d${d.faces} <strong>${d.result}</strong> ${d.result===1?'(Hitch)':role==='total'?'(Total)':role==='effect'?'(Effect)':role==='effect2'?'(Extra effect)':''}</span>`;}).join('');
+ const {total, faces, extraFaces} = choice;
+ const lines=results.map((d,i)=>{const assigned=choice.choices.find(x=>x.i===i)?.role??'unused';const role=assigned==='total2'?'total':assigned;return `<span class="cfx-chatdie ${role}">${escapeHTML(d.label)}: d${d.faces} <strong>${d.result}</strong> ${d.result===1?'(Hitch)':role==='total'?'(Total)':role==='effect'?'(Effect)':role==='effect2'?'(Extra effect)':''}</span>`;}).join('');
  const ppSummary=choice.spent?`<p>Spent ${choice.spent} Plot Point${choice.spent===1?'':'s'} to keep ${[choice.third?'a third total die':null,choice.second?'an extra effect die':null].filter(Boolean).join(' and ')}.</p>`:'';
  const hinderSummary=selection.hinderedName?`<p><b>Hindered:</b> ${escapeHTML(selection.hinderedName)} — +1 PP after this roll.</p>`:'';
  const content=`<div class="cfx-chat"><header><strong>${escapeHTML(actor.name)} — Cortex Roll</strong></header><p class="cfx-chatbig">Total <b>${total}</b> · Effect <b>d${faces}${extraFaces?` + d${extraFaces}`:''}</b></p><div class="cfx-chatdice">${lines}</div>${ppSummary}${hinderSummary}${results.some(x=>x.result===1)?'<p>⚠ One or more hitches (rolled 1)</p>':''}</div>`;
@@ -223,11 +294,20 @@ async function usePlotPoint(actor){
  await ChatMessage.create({speaker:ChatMessage.getSpeaker({actor}),content:`<div class="cfx-chat"><strong>${escapeHTML(actor.name)} spent 1 Plot Point</strong><p>${escapeHTML(label)}</p>${selection.details?`<p>${escapeHTML(selection.details)}</p>`:''}</div>`,style:CONST.CHAT_MESSAGE_STYLES.OTHER},{rollMode:game.settings.get('core','rollMode')});
 }
 
+function openPortraitPicker(actor, savePortrait) {
+ const Picker = foundry.applications.apps.FilePicker.implementation;
+ return new Picker({type: 'image', current: actor.img, callback: savePortrait}).render({force: true});
+}
+
 class FantasySheet extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.sheets.ActorSheetV2){
- static DEFAULT_OPTIONS={classes:['cortex-fantasy','sheet'],position:{width:840,height:750},window:{resizable:true},actions:{roll:FantasySheet.rollAction,pp:FantasySheet.ppAction,usepp:FantasySheet.usePPAction}};
+ static DEFAULT_OPTIONS={classes:['cortex-fantasy','sheet'],position:{width:840,height:750},window:{resizable:true},actions:{roll:FantasySheet.rollAction,pp:FantasySheet.ppAction,usepp:FantasySheet.usePPAction,portrait:FantasySheet.pickPortrait}};
  static PARTS={sheet:{template:`systems/${ID}/templates/actor.hbs`}};
  constructor(options={}){super(options);this._cfxTab='traits';this._cfxScroll={};}
- async _prepareContext(options){const context=await super._prepareContext(options);const s=this.actor.system;return {...context,actor:this.actor,edit:this.isEditable,content:renderSheet(s,this.actor,this._cfxTab)};}
+ async _prepareContext(options){const context=await super._prepareContext(options);const s=this.actor.system;return {...context,actor:this.actor,edit:this.isEditable,content:renderSheet(s,this.actor,this._cfxTab,this.isEditable)};}
+ static pickPortrait() {
+  if (!this.isEditable) return;
+  return openPortraitPicker(this.actor, img => this.actor.update({img}));
+ }
  static async rollAction(event,button){await rollPool(this.actor);}
  static async usePPAction(event,button){await usePlotPoint(this.actor);}
  static async ppAction(event,button){await adjustPlotPoints(this.actor, Number(button.dataset.delta));}
@@ -296,9 +376,9 @@ class FantasySheet extends foundry.applications.api.HandlebarsApplicationMixin(f
   el.querySelectorAll('textarea').forEach(text=>text.addEventListener('blur',e=>{if(e.currentTarget.value!==e.currentTarget.defaultValue)e.currentTarget.dispatchEvent(new Event('change',{bubbles:false}));}));
  }
 }
-function renderSheet(s,actor,tab){
+function renderSheet(s,actor,tab,editable){
  const parts=[];
- parts.push(`<header class="cfx-identity"><img src="${escapeHTML(actor.img)}" alt="Portrait"/><div class="cfx-identity-fields"><label>Character Name <input name="name" value="${escapeHTML(actor.name)}"></label><label>Concept ${textInput('concept',s.concept,'Druid, warrior, spellblade…')}</label><div class="cfx-pair"><label>Ancestry ${textInput('ancestry',s.ancestry)}</label><label>Background ${textInput('background',s.background)}</label></div></div><div class="cfx-pp"><span>Plot Points</span><div><button type="button" data-action="pp" data-delta="-1">−</button><strong>${s.plotPoints}</strong><button type="button" data-action="pp" data-delta="1">+</button></div><button type="button" data-action="usepp" class="cfx-usepp"><i class="fa-solid fa-coins"></i> Use Plot Point</button><button type="button" class="cfx-primary" data-action="roll"><i class="fa-solid fa-dice"></i> Roll Pool</button></div></header>`);
+ parts.push(`<header class="cfx-identity"><button type="button" class="cfx-pc-portrait" data-action="portrait" aria-label="Change portrait" title="Change portrait" ${editable ? '' : 'disabled'}><img src="${escapeHTML(actor.img)}" alt="Portrait"></button><div class="cfx-identity-fields"><label>Character Name <input name="name" value="${escapeHTML(actor.name)}"></label><label>Concept ${textInput('concept',s.concept,'Druid, warrior, spellblade…')}</label><div class="cfx-pair"><label>Ancestry ${textInput('ancestry',s.ancestry)}</label><label>Background ${textInput('background',s.background)}</label></div></div><div class="cfx-pp"><span>Plot Points</span><div><button type="button" data-action="pp" data-delta="-1">−</button><strong>${s.plotPoints}</strong><button type="button" data-action="pp" data-delta="1">+</button></div><button type="button" data-action="usepp" class="cfx-usepp"><i class="fa-solid fa-coins"></i> Use Plot Point</button><button type="button" class="cfx-primary" data-action="roll"><i class="fa-solid fa-dice"></i> Roll Pool</button></div></header>`);
  parts.push(`<nav class="cfx-tabs">${[['traits','Traits, Skills & Distinctions'],['extras','Assets & Abilities'],['story','Beliefs & Instincts'],['status','Stress & Notes']].map(([key,label])=>`<button type="button" data-tab="${key}" role="tab" aria-selected="${tab===key}" class="${tab===key?'active':''}">${label}</button>`).join('')}</nav>`);
  const panels=[];
  for(const currentTab of ['traits','extras','story','status']){
@@ -331,12 +411,204 @@ function renderSheet(s,actor,tab){
  parts.push(`<main class="cfx-scroll">${panels.join('')}</main>`);
  return parts.join('');
 }
+class NpcSheet extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.sheets.ActorSheetV2) {
+ static DEFAULT_OPTIONS = {
+  classes: ['cortex-fantasy', 'sheet', 'cfx-npc'],
+  position: {width: 660, height: 640},
+  window: {resizable: true},
+  actions: {
+   roll: NpcSheet.roll,
+   pp: FantasySheet.ppAction,
+   usepp: FantasySheet.usePPAction,
+   portrait: NpcSheet.pickPortrait,
+   addTrait: NpcSheet.addTrait,
+   removeTrait: NpcSheet.removeTrait,
+   mobDice: NpcSheet.changeMobDice
+  }
+ };
+ static PARTS = {sheet: {template: `systems/${ID}/templates/actor.hbs`}};
+
+ _scrollByType = {};
+ _pendingUpdate = Promise.resolve();
+
+ async _prepareContext(options) {
+  const context = await super._prepareContext(options);
+  return {...context, content: renderNpcSheet(this.actor, this.isEditable)};
+ }
+
+ async _preRender(context, options) {
+  await super._preRender(context, options);
+  if (this.rendered) this._saveScroll();
+ }
+
+ _saveScroll() {
+  const scroll = this.element?.querySelector('.cfx-scroll');
+  if (scroll) this._scrollByType[scroll.dataset.npcType] = scroll.scrollTop;
+ }
+
+ _onRender(context, options) {
+  super._onRender(context, options);
+  const scroll = this.element.querySelector('.cfx-scroll');
+  scroll.scrollTop = this._scrollByType[scroll.dataset.npcType] ?? 0;
+  this.element.querySelector('.cfx-root').addEventListener('change', event => {
+   const input = event.target;
+   if (!this.isEditable || !input.name) return;
+   if (input.name === 'system.npcType') this._showType(input.value);
+   const value = input.matches('[data-number]') ? Number(input.value) : input.value;
+   if (input.dataset.trait !== undefined) {
+    const {trait, field} = input.dataset;
+    this._editTraits(traits => {
+     const row = traits.find(row => row.id === trait);
+     if (row) row[field] = value;
+    });
+   } else {
+    this._updateNpc(() => ({[input.name]: value}));
+   }
+  });
+ }
+
+ _showType(type) {
+  this._saveScroll();
+  const scroll = this.element.querySelector('.cfx-scroll');
+  scroll.dataset.npcType = type;
+  for (const section of this.element.querySelectorAll('[data-npc-only]')) {
+   section.hidden = section.dataset.npcOnly !== type;
+  }
+  scroll.scrollTop = this._scrollByType[type] ?? this._scrollByType[this.actor.system.npcType] ?? 0;
+ }
+
+ _updateNpc(getChanges) {
+  this._pendingUpdate = this._pendingUpdate.then(async () => {
+   if (!this.isEditable) return;
+   if (!await this.actor.update(getChanges())) throw new Error('Actor update was cancelled');
+  }).catch(error => {
+   console.error('Cortex Fantasy | NPC update failed', error);
+   ui.notifications.error('Could not save the NPC change.');
+   if (this.rendered) this.render();
+  });
+  return this._pendingUpdate;
+ }
+
+ _editTraits(edit) {
+  return this._updateNpc(() => {
+   const traits = this.actor.system.npcTraits.map(trait => ({...trait}));
+   edit(traits);
+   return {'system.npcTraits': traits};
+  });
+ }
+
+ static async roll() {
+  await this._pendingUpdate;
+  return rollPool(this.actor);
+ }
+
+ static pickPortrait() {
+  if (!this.isEditable) return;
+  return openPortraitPicker(this.actor, img => this._updateNpc(() => ({img})));
+ }
+
+ static addTrait() {
+  return this._editTraits(traits => traits.push({id: foundry.utils.randomID(), name: '', rating: 6}));
+ }
+
+ static removeTrait(event, button) {
+  return this._editTraits(traits => {
+   const index = traits.findIndex(row => row.id === button.dataset.traitId);
+   if (index >= 0) traits.splice(index, 1);
+  });
+ }
+
+ static changeMobDice(event, button) {
+  const delta = Number(button.dataset.delta);
+  return this._updateNpc(() => ({
+   'system.mobCount': Math.min(MAX_MOB_DICE, Math.max(0, this.actor.system.mobCount + delta))
+  }));
+ }
+}
+
+function renderNpcSheet(actor, editable) {
+ const s = actor.system;
+ const disabled = editable ? '' : 'disabled';
+ const typeOptions = NPC_TYPES.map(type =>
+  `<option value="${type}" ${s.npcType === type ? 'selected' : ''}>${cap(type)}</option>`
+ ).join('');
+ const ratedRows = (group, label) => Object.entries(s[group]).map(([key, row], index) => `
+  <div class="cfx-traitline">
+   ${textInput(`${group}.${key}.name`, row.name, `${label} ${index + 1}`)}
+   <select name="system.${group}.${key}.rating" data-number aria-label="${label} ${index + 1} rating">${opts(row.rating)}</select>
+  </div>`).join('');
+ const tracks = group => Object.entries(s[group]).map(([key, value]) => `
+  <label class="cfx-rating"><span>${cap(key)}</span>
+   ${dieSelect(`${group}.${key}`, value, 'data-number')}
+  </label>`).join('');
+ const traits = s.npcTraits.map((row, index) => `
+  <div class="cfx-npc-trait">
+   <input name="trait-${index}-name" data-trait="${escapeHTML(row.id)}" data-field="name" value="${escapeHTML(row.name)}"
+    aria-label="Trait ${index + 1} name" placeholder="Trait name">
+   <select name="trait-${index}-rating" data-trait="${escapeHTML(row.id)}" data-field="rating" data-number
+    aria-label="Trait ${index + 1} rating">${opts(row.rating, {includeZero: false})}</select>
+   <button type="button" data-action="removeTrait" data-trait-id="${escapeHTML(row.id)}" aria-label="Remove trait ${index + 1}">−</button>
+  </div>`).join('');
+ const abilities = Object.entries(s.abilities).map(([key, row], index) => `
+  <div class="cfx-ability">
+   ${textInput(`abilities.${key}.name`, row.name, `Ability ${index + 1}`)}
+   ${area(`abilities.${key}.description`, row.description, 'Ability description')}
+  </div>`).join('');
+ return `
+  <header class="cfx-npc-header">
+   <button type="button" class="cfx-npc-portrait" data-action="portrait" aria-label="Change portrait" title="Change portrait" ${disabled}>
+    <img src="${escapeHTML(actor.img)}" alt="NPC portrait">
+   </button>
+   <label>Name <input name="name" value="${escapeHTML(actor.name)}" ${disabled}></label>
+   <label>NPC Type <select name="system.npcType" ${disabled}>${typeOptions}</select></label>
+   <button type="button" class="cfx-primary" data-action="roll">Roll Pool</button>
+  </header>
+  <div class="cfx-scroll" data-npc-type="${s.npcType}">
+   <fieldset class="cfx-npc-fields" ${disabled}>
+    <section class="cfx-panel"><label>Description ${area('notes', s.notes)}</label></section>
+    <section class="cfx-panel" data-npc-only="mob" ${s.npcType === 'mob' ? '' : 'hidden'}>
+     <h2>Mob Pool</h2>
+     <div class="cfx-npc-mob">
+      <label>Die rating <select name="system.mobDie" data-number>${opts(s.mobDie, {includeZero: false})}</select></label>
+      <label>Remaining dice <input type="number" name="system.mobCount" min="0" max="${MAX_MOB_DICE}" step="1" value="${s.mobCount}" data-number></label>
+      <button type="button" data-action="mobDice" data-delta="-1" ${s.mobCount === 0 ? 'disabled' : ''}>Remove die</button>
+      <button type="button" data-action="mobDice" data-delta="1" ${s.mobCount === MAX_MOB_DICE ? 'disabled' : ''}>Add die</button>
+     </div>
+     <p class="cfx-hint">${s.mobCount ? `The mob rolls ${s.mobCount}d${s.mobDie} plus any selected traits or assets.` : 'The mob is taken out.'}</p>
+    </section>
+    <section class="cfx-panel"><h2>Rated Traits</h2>${traits}
+     <button type="button" data-action="addTrait">Add trait</button>
+    </section>
+    <div class="cfx-columns">
+     <section class="cfx-panel"><h2>Assets</h2>${ratedRows('assets', 'Asset')}</section>
+     <section class="cfx-panel"><h2>Complications</h2>${ratedRows('complications', 'Complication')}</section>
+    </div>
+    <div data-npc-only="major" ${s.npcType === 'major' ? '' : 'hidden'}>
+     <section class="cfx-panel"><h2>Plot Points</h2>
+      <div class="cfx-npc-pp">
+       <button type="button" data-action="pp" data-delta="-1" aria-label="Remove Plot Point">−</button>
+       <strong>${s.plotPoints}</strong>
+       <button type="button" data-action="pp" data-delta="1" aria-label="Add Plot Point">+</button>
+       <button type="button" data-action="usepp">Use Plot Point</button>
+      </div>
+     </section>
+     <div class="cfx-columns">
+      <section class="cfx-panel"><h2>Stress</h2>${tracks('stress')}</section>
+      <section class="cfx-panel"><h2>Trauma</h2>${tracks('trauma')}</section>
+     </div>
+     <section class="cfx-panel"><h2>Abilities</h2><div class="cfx-abilities">${abilities}</div></section>
+    </div>
+   </fieldset>
+  </div>`;
+}
+
 Hooks.on('preCreateActor',(actor,data)=>{if(data.type==='character')actor.updateSource({'prototypeToken.actorLink':true});});
 Hooks.once('init',()=>{
  CONFIG.Actor.documentClass=FantasyActor;
  CONFIG.Actor.dataModels.character=CharacterData;
- CONFIG.Actor.dataModels.npc=CharacterData;
+ CONFIG.Actor.dataModels.npc=NpcData;
  const config=foundry.applications.apps.DocumentSheetConfig;
- config.registerSheet(foundry.documents.Actor,ID,FantasySheet,{types:['character','npc'],makeDefault:true,label:'Cortex Fantasy Sheet'});
- console.log('Cortex Fantasy | v0.1.8 initialized');
+ config.registerSheet(foundry.documents.Actor,ID,FantasySheet,{types:['character'],makeDefault:true,label:'Cortex Fantasy Sheet'});
+ config.registerSheet(foundry.documents.Actor,ID,NpcSheet,{types:['npc'],makeDefault:true,label:'Cortex Fantasy NPC Sheet'});
+ console.log('Cortex Fantasy | v0.1.9 initialized');
 });
