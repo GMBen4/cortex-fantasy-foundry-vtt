@@ -2,7 +2,8 @@
 .cortex-fantasy .window-content{padding:0;overflow:hidden;background:var(--cfx-bg);color:var(--cfx-ink)}
 .cortex-fantasy .cfx-root{height:100%;min-height:0;display:flex;flex-direction:column;font:14px/1.45 system-ui,sans-serif}
 .cortex-fantasy .cfx-identity{--cfx-portrait-size:104px;display:grid;grid-template-columns:var(--cfx-portrait-size) minmax(0,1fr) 150px;gap:12px;align-items:center;padding:12px 16px;background:#1c2b3d;border-bottom:2px solid #806c46}
-.cortex-fantasy .cfx-identity .cfx-pc-portrait{
+.cortex-fantasy .cfx-identity .cfx-pc-portrait,
+.cfx-npc .cfx-npc-header .cfx-npc-portrait{
  display:block;
  box-sizing:border-box;
  width:var(--cfx-portrait-size);
@@ -15,7 +16,8 @@
  border-radius:7px;
  background:var(--cfx-bg);
 }
-.cortex-fantasy .cfx-pc-portrait img{display:block;width:100%;height:100%;object-fit:contain}
+.cortex-fantasy .cfx-pc-portrait img,
+.cfx-npc .cfx-npc-portrait img{display:block;width:100%;height:100%;object-fit:contain}
 .cortex-fantasy label{display:flex;flex-direction:column;gap:3px;font-weight:650;min-width:0;color:var(--cfx-ink)}
 .cortex-fantasy input,.cortex-fantasy select,.cortex-fantasy textarea{font:inherit;background:#f2efe6;color:#1c2430;border:1px solid #7f8990;border-radius:5px;min-width:0;padding:5px 7px;box-sizing:border-box;width:100%}
 .cortex-fantasy input:focus,.cortex-fantasy select:focus,.cortex-fantasy textarea:focus{outline:2px solid #eecb85}
@@ -103,15 +105,14 @@
 .cfx-roll-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px 12px;padding:8px;border:1px solid #8694a0;border-radius:6px}
 .cfx-roll-summary dd{margin:0;font-weight:700}
 .cfx-npc .cfx-npc-header {
+ --cfx-portrait-size: 104px;
  display: grid;
- grid-template-columns: 104px minmax(0, 1fr) minmax(85px, 110px) auto;
+ grid-template-columns: var(--cfx-portrait-size) minmax(0, 1fr) minmax(85px, 110px) auto;
  align-items: end;
  gap: 10px;
  padding: 10px 14px;
  background: #1c2b3d;
 }
-.cfx-npc .cfx-npc-portrait {width: 100%; padding: 0; overflow: hidden}
-.cfx-npc .cfx-npc-portrait img {display: block; width: 100%; aspect-ratio: 1; object-fit: cover}
 .cfx-npc .cfx-npc-fields {min-width: 0; padding: 0; margin: 0; border: 0}
 .cfx-npc [data-npc-only][hidden] {display: none !important}
 .cfx-npc .cfx-npc-trait {
@@ -129,5 +130,5 @@
 .cfx-npc .cfx-npc-mob label {flex: 1; min-width: 85px}
 .cfx-npc .cfx-npc-pp {align-items: center}
 @media (max-width: 520px) {
- .cfx-npc .cfx-npc-header {grid-template-columns: 104px minmax(0, 1fr)}
+ .cfx-npc .cfx-npc-header {grid-template-columns: var(--cfx-portrait-size) minmax(0, 1fr)}
 }
